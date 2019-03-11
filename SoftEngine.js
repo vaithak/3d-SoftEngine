@@ -24,6 +24,7 @@ SoftEngine.Device = class {
         this.workingWidth   = canvas.width;
         this.workingHeight  = canvas.height;
         this.workingContext = this.workingCanvas.getContext("2d");
+        this.depthbuffer = new Array(this.workingWidth * this.workingHeight);
     }
 
     LoadJSONFile(filename, callback) {
@@ -98,6 +99,12 @@ SoftEngine.Device = class {
         // Clearing with black color by default
         this.workingContext.clearRect(0, 0, this.workingWidth, this.workingHeight);
         this.backbuffer = this.workingContext.getImageData(0, 0, this.workingWidth, this.workingHeight);
+
+        // Clearing depth buffer
+        for (let i = 0; i < this.depthbuffer.length; i++) {
+            // Max possible value 
+            this.depthbuffer[i] = 10000000;
+        }
     }
 
     // Once everything is ready, we can flush the back buffer into the front buffer. 
@@ -106,17 +113,25 @@ SoftEngine.Device = class {
     }
 
     // Called to put a pixel on screen at a specific X,Y coordinates
+    // point is of type Vector3 as point.z is used for Depth Buffer
     drawPoint(point, color) {
         // Clipping what's visible on screen
         if (point.x >= 0 && point.y >= 0 && point.x < this.workingWidth && point.y < this.workingHeight) {
             let x = point.x;
             let y = point.y;
-            let index = ((x >> 0) + (y >> 0) * this.workingWidth) * 4;
-            
-            this.backbuffer.data[index] = color.r * 255;
-            this.backbuffer.data[index + 1] = color.g * 255;
-            this.backbuffer.data[index + 2] = color.b * 255;
-            this.backbuffer.data[index + 3] = color.a * 255;
+            let z = point.z;
+            let index = ((x >> 0) + (y >> 0) * this.workingWidth);
+
+            // Discard if behind an already painted object
+            if(this.depthbuffer[index] < z) {
+                return;
+            }
+        
+            this.depthbuffer[index] = z;
+            this.backbuffer.data[4*index] = color.r * 255;
+            this.backbuffer.data[4*index + 1] = color.g * 255;
+            this.backbuffer.data[4*index + 2] = color.b * 255;
+            this.backbuffer.data[4*index + 3] = color.a * 255;
         }
     }
 
@@ -168,9 +183,17 @@ SoftEngine.Device = class {
         // starting on the center of the screen. But drawing on screen normally starts
         // from top left. We then need to transform them again to have x:0, y:0 on top left.
         // As they are currently inside a [-1,1] cube on all axes.
-        let x = point.x * this.workingWidth + this.workingWidth / 2.0 >> 0;
-        let y = -point.y * this.workingHeight + this.workingHeight / 2.0 >> 0;
-        return (new BABYLON.Vector2(x, y));
+        let x = point.x * this.workingWidth + this.workingWidth / 2.0 ;
+        let y = -point.y * this.workingHeight + this.workingHeight / 2.0;
+
+        // Z-cordinate is for z-buffer
+        return (new BABYLON.Vector3(x, y, point.z));
+    }
+
+    clamp (value, min, max) {
+        if (typeof min === "undefined") { min = 0; }
+        if (typeof max === "undefined") { max = 1; }
+        return Math.max(min, Math.min(value, max));
     }
 
     // Rasterization of Triangles using Scanline conversion
@@ -178,12 +201,18 @@ SoftEngine.Device = class {
         let gradient1 = pa.y != pb.y ? (y - pa.y) / (pb.y - pa.y) : 1;
         let gradient2 = pc.y != pd.y ? (y - pc.y) / (pd.y - pc.y) : 1;
     
-        let sx = pa.x + (pb.x - pa.x)*gradient1;
-        let ex = pc.x + (pd.x - pc.x)*gradient2;
+        let sx = (pa.x + (pb.x - pa.x)*this.clamp(gradient1)) >> 0;
+        let ex = (pc.x + (pd.x - pc.x)*this.clamp(gradient2)) >> 0;
+
+        // starting Z & ending Z
+        let z1 = (pa.z + (pb.z - pa.z)*this.clamp(gradient1)) ;
+        let z2 = (pc.z + (pd.z - pc.z)*this.clamp(gradient2)) ;
     
         // drawing a line from left (sx) to right (ex) 
-        for(var x = sx; x < ex; x++) {
-            this.drawPoint(new BABYLON.Vector2(x, y), color);
+        for(let x = sx; x < ex; x++) {
+            let gradient = (x - sx) / (ex - sx);
+            let z = (z1 + (z2 - z1)*this.clamp(gradient));
+            this.drawPoint(new BABYLON.Vector3(x, y, z), color);
         }
     }
 
@@ -209,14 +238,14 @@ SoftEngine.Device = class {
     
         // Computing slopes
         let invSlopeP1P2, invSlopeP1P3;
-        if(p2.y != p1.y) {
+        if(p2.y > p1.y) {
             invSlopeP1P2 = (p2.x - p1.x) / (p2.y - p1.y);
         } else {
             // For easy calculation
             invSlopeP1P2 = 0;
         }
     
-        if(p3.x != p1.x) {
+        if(p3.y - p1.y > 0) {
             invSlopeP1P3 = (p3.x - p1.x) / (p3.y - p1.y);
         } else {
             // For easy calculation
@@ -285,13 +314,13 @@ SoftEngine.Device = class {
             // }
 
             cMesh.Faces.forEach((currentFace, indexFaces) => {
-                var vertexA = cMesh.Vertices[currentFace.A];
-                var vertexB = cMesh.Vertices[currentFace.B];
-                var vertexC = cMesh.Vertices[currentFace.C];
+                let vertexA = cMesh.Vertices[currentFace.A];
+                let vertexB = cMesh.Vertices[currentFace.B];
+                let vertexC = cMesh.Vertices[currentFace.C];
 
-                var pixelA = this.projectPointOnScreen(vertexA, transformMatrix);
-                var pixelB = this.projectPointOnScreen(vertexB, transformMatrix);
-                var pixelC = this.projectPointOnScreen(vertexC, transformMatrix);
+                let pixelA = this.projectPointOnScreen(vertexA, transformMatrix);
+                let pixelB = this.projectPointOnScreen(vertexB, transformMatrix);
+                let pixelC = this.projectPointOnScreen(vertexC, transformMatrix);
 
                 // FOR WIREFRAME RENDERING
                 // this.breshnamDrawLine(pixelA, pixelB);
@@ -299,7 +328,7 @@ SoftEngine.Device = class {
                 // this.breshnamDrawLine(pixelC, pixelA);
 
                 // FOR TRIANGLE RASTERIZATION
-                var color = 0.25 + (indexFaces / cMesh.Faces.length) * 0.75;
+                let color = 0.25 + (indexFaces / cMesh.Faces.length) * 0.75;
                 this.drawTriangle(pixelA, pixelB, pixelC, new BABYLON.Color4(color, color, color, 1));
             });
         });
