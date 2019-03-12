@@ -1,4 +1,11 @@
-class SoftEngine {}
+class SoftEngine {
+    constructor() {
+        this.wireframe = 0;
+        this.rastered  = 1;
+        this.shaded    = 0;
+        this.textured  = 0;
+    }
+}
 
 SoftEngine.Camera = class {
     constructor() {
@@ -295,7 +302,7 @@ SoftEngine.Device = class {
     }
 
     // The main method of the engine that re-compute each vertex projection during each frame
-    render (camera, meshes) {
+    render (camera, meshes, engine) {
         // To understand this part, please read the prerequisites resources
         let viewMatrix = BABYLON.Matrix.LookAtLH(camera.Position, camera.Target, camera.Up);
         let projectionMatrix = BABYLON.Matrix.PerspectiveFovLH(0.78, this.workingWidth / this.workingHeight, 0.01, 1.0);
@@ -323,13 +330,16 @@ SoftEngine.Device = class {
                 let pixelC = this.projectPointOnScreen(vertexC, transformMatrix);
 
                 // FOR WIREFRAME RENDERING
-                // this.breshnamDrawLine(pixelA, pixelB);
-                // this.breshnamDrawLine(pixelB, pixelC);
-                // this.breshnamDrawLine(pixelC, pixelA);
-
+                if (engine.wireframe == 1){
+                    this.breshnamDrawLine(pixelA, pixelB);
+                    this.breshnamDrawLine(pixelB, pixelC);
+                    this.breshnamDrawLine(pixelC, pixelA);
+                }
                 // FOR TRIANGLE RASTERIZATION
-                let color = 0.25 + (indexFaces / cMesh.Faces.length) * 0.75;
-                this.drawTriangle(pixelA, pixelB, pixelC, new BABYLON.Color4(color, color, color, 1));
+                else if (engine.rastered == 1){
+                    let color = 0.25 + (indexFaces / cMesh.Faces.length) * 0.75;
+                    this.drawTriangle(pixelA, pixelB, pixelC, new BABYLON.Color4(color, color, color, 1));
+                }
             });
         });
     }

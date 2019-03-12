@@ -3,13 +3,45 @@ var device;
 var mesh;
 var meshes = [];
 var camera;
+var engine;
 
 document.addEventListener("DOMContentLoaded", init, false);
 
 function init() {
+    $('#wireframe').on('click', () => {
+        console.log("hi")
+        engine.wireframe = 1;
+        engine.rastered  = 0;
+        engine.shaded    = 0;
+        engine.textured  = 0;
+    });
+    
+    $('#rastered').on('click', () => {
+        engine.wireframe = 0;
+        engine.rastered  = 1;
+        engine.shaded    = 0;
+        engine.textured  = 0;
+    });
+
+    // $('#shaded').on('click', () => {
+    //     engine.wireframe = 0;
+    //     engine.rastered  = 0;
+    //     engine.shaded    = 1;
+    //     engine.textured  = 0;
+    // });
+
+    // $('#textured').on('click', () => {
+    //     engine.wireframe = 0;
+    //     engine.rastered  = 0;
+    //     engine.shaded    = 0;
+    //     engine.textured  = 1;
+    // });
+    
     canvas = document.getElementById("frontBuffer");
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+
+    engine = new SoftEngine();
 
     camera = new SoftEngine.Camera();
     camera.Position = new BABYLON.Vector3(0, 2, -10);
@@ -56,7 +88,7 @@ function drawingLoop() {
         // meshes[i].Rotation.x += 0.01;
         meshes[i].Rotation.y += 0.01;
     }
-    device.render(camera, meshes);
+    device.render(camera, meshes, engine);
     device.present();
     window.requestAnimationFrame(drawingLoop);
 }
