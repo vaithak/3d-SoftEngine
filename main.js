@@ -44,9 +44,9 @@ function init() {
     engine = new SoftEngine();
 
     camera = new SoftEngine.Camera();
-    camera.Position = new BABYLON.Vector3(0, 2, -9);
+    camera.Position = new BABYLON.Vector3(0, 3, -12);
     camera.Target = new BABYLON.Vector3(0, 0, 0);
-    lightPos = new BABYLON.Vector3(0, 6, -5);
+    lightPos = new BABYLON.Vector3(0, 5, -5);
 
     device = new SoftEngine.Device(canvas);
     device.LoadJSONFile("monkey.babylon", loadJSONCompleted);
@@ -62,7 +62,7 @@ function drawingLoop() {
     for (let i = 0; i < meshes.length; i++) {
         // rotating slightly the mesh during each frame rendered
         // meshes[i].Rotation.x += 0.01;
-        meshes[i].Rotation.y += 0.01;
+        meshes[i].Rotation.y += 0.02;
     }
     device.render(camera, meshes, engine, lightPos);
     device.present();

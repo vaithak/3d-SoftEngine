@@ -2,8 +2,8 @@ class SoftEngine {
     constructor() {
         this.wireframe = 0;
         this.rastered  = 0;
-        this.shaded    = 1;
-        this.textured  = 0;
+        this.shaded    = 0;
+        this.textured  = 1;
     }
 }
 
@@ -17,11 +17,12 @@ SoftEngine.Camera = class {
 
 SoftEngine.Mesh = class {
     constructor(name, verticesCount, facesCount) {
-        this.name     = name;
-        this.Vertices = new Array(verticesCount);
-        this.Faces    = new Array(facesCount);
-        this.Rotation = BABYLON.Vector3.Zero();
-        this.Position = BABYLON.Vector3.Zero();
+        this.name         = name;
+        this.Vertices     = new Array(verticesCount);
+        this.Faces        = new Array(facesCount);
+        this.Rotation     = BABYLON.Vector3.Zero();
+        this.Position     = BABYLON.Vector3.Zero();
+        this.Texture      = null;
         this.RasterColors = new Array(facesCount);
     }
 }
@@ -30,21 +31,22 @@ class Texture{
     constructor (filename, width, height) {
         this.width = width;
         this.height = height;
-        this.internalBuffer = [];
+        this.internalBuffer = null;
         this.load(filename);
     }
 
     load (filename) {
+        let _this = this;
         let imageTexture = new Image();
         imageTexture.height = this.height;
         imageTexture.width = this.width;
         imageTexture.onload = function () {
             let internalCanvas = document.createElement("canvas");
-            internalCanvas.width = this.width;
-            internalCanvas.height = this.height;
+            internalCanvas.width = _this.width;
+            internalCanvas.height = _this.height;
             let internalContext = internalCanvas.getContext("2d");
             internalContext.drawImage(imageTexture, 0, 0);
-            this.internalBuffer = internalContext.getImageData(0, 0, this.width, this.height);
+            _this.internalBuffer = internalContext.getImageData(0, 0, _this.width, _this.height);
         };
         imageTexture.src = filename;
     }
@@ -52,7 +54,7 @@ class Texture{
     // Takes the U & V coordinates exported by Blender
     // and return the corresponding pixel color in the texture
     map (tu, tv) {
-        if (this.internalBuffer) {
+        if (this.internalBuffer) { 
             // using a % operator to cycle/repeat the texture if needed
             let u = Math.abs(((tu * this.width) % this.width)) >> 0;
             let v = Math.abs(((tv * this.height) % this.height)) >> 0;
@@ -145,20 +147,24 @@ SoftEngine.Device = class {
                 let ny = verticesArray[index * verticesStep + 4];
                 let nz = verticesArray[index * verticesStep + 5];
 
-                mesh.Vertices[index] = {
-                    Coordinates: new BABYLON.Vector3(x, y, z),
-                    Normal: new BABYLON.Vector3(nx, ny, nz),
-                    WorldCoordinates: null
-                };
-
                 // Loading the texture coordinates
                 if (uvCount > 0) {
                     var u = verticesArray[index * verticesStep + 6];
                     var v = verticesArray[index * verticesStep + 7];
-                    mesh.Vertices[index].TextureCoordinates = new BABYLON.Vector2(u, v);
+                    mesh.Vertices[index] = {
+                        Coordinates: new BABYLON.Vector3(x, y, z),
+                        Normal: new BABYLON.Vector3(nx, ny, nz),
+                        WorldCoordinates: null,
+                        TextureCoordinates: new BABYLON.Vector2(u, v) 
+                    };
                 }
                 else {
-                    mesh.Vertices[index].TextureCoordinates = new BABYLON.Vector2(0, 0);
+                    mesh.Vertices[index] = {
+                        Coordinates: new BABYLON.Vector3(x, y, z),
+                        Normal: new BABYLON.Vector3(nx, ny, nz),
+                        WorldCoordinates: null,
+                        TextureCoordinates: new BABYLON.Vector2(0, 0)
+                    };
                 }
             }
 
@@ -271,8 +277,7 @@ SoftEngine.Device = class {
         }
     }
 
-    // projectPointOnScreen takes some 3D coordinates and transform them
-    // in 2D coordinates using the transformation matrix
+    // projectPointOnScreen takes a vertex and returns the transformed vertex
     projectPointOnScreen (coord, transMat, world) {
         let point = BABYLON.Vector3.TransformCoordinates(coord.Coordinates, transMat);
         
@@ -291,7 +296,8 @@ SoftEngine.Device = class {
         return ({
             Coordinates: new BABYLON.Vector3(x, y, point3DWorld.z),
             Normal: normal3DWorld,
-            WorldCoordinates: point3DWorld
+            WorldCoordinates: point3DWorld,
+            TextureCoordinates: coord.TextureCoordinates
         });
     }
 
@@ -309,36 +315,61 @@ SoftEngine.Device = class {
         return Math.max(0, BABYLON.Vector3.Dot(normal, lightDirection));
     }
 
+    // Linearly Interpolating
+    linInterpolate (min, max, gradient) {
+        let t = this.clamp(gradient);
+        return (1-t)*min + t*max;
+    };
+
     // Rasterization of Triangles using Scanline conversion
-    processScanLine (data, pa, pb, pc, pd, color, boolShaded) {
+    processScanLine (data, pa, pb, pc, pd, color, boolShaded, texture) {
         let gradient1 = pa.y != pb.y ? (data.currentY - pa.y) / (pb.y - pa.y) : 1;
         let gradient2 = pc.y != pd.y ? (data.currentY - pc.y) / (pd.y - pc.y) : 1;
     
         // Finding X Coordinates by interpolation
-        let sx = (pa.x + (pb.x - pa.x)*this.clamp(gradient1)) >> 0;
-        let ex = (pc.x + (pd.x - pc.x)*this.clamp(gradient2)) >> 0;
+        let sx = this.linInterpolate(pa.x, pb.x, gradient1) >> 0;
+        let ex = this.linInterpolate(pc.x, pd.x, gradient2) >> 0;
 
         // starting Z & ending Z by interpolation
-        let z1 = (pa.z + (pb.z - pa.z)*this.clamp(gradient1)) ;
-        let z2 = (pc.z + (pd.z - pc.z)*this.clamp(gradient2)) ;
+        let z1 = this.linInterpolate(pa.z, pb.z, gradient1);
+        let z2 = this.linInterpolate(pc.z, pd.z, gradient2);
 
         // Finding starting and ending intensity by interpolation
-        let snl = data.ndotla + (data.ndotlb - data.ndotla)*this.clamp(gradient1);
-        let enl = data.ndotlc + (data.ndotld - data.ndotlc)*this.clamp(gradient2);
+        let snl = this.linInterpolate(data.ndotla, data.ndotlb, gradient1);
+        let enl = this.linInterpolate(data.ndotlc, data.ndotld, gradient2);
+
+        // Finding Starting and Ending Texture Coordinates
+        let su = this.linInterpolate(data.ua, data.ub, gradient1);
+        let eu = this.linInterpolate(data.uc, data.ud, gradient2);
+        let sv = this.linInterpolate(data.va, data.vb, gradient1);
+        let ev = this.linInterpolate(data.vc, data.vd, gradient2);
     
         // drawing a line from left (sx) to right (ex) 
         for(let x = sx; x < ex; x++) {
-            let gradient = (x - sx) / (ex - sx);
-            let z = (z1 + (z2 - z1)*this.clamp(gradient));
-            let ndotl = snl + (enl - snl)*this.clamp(gradient);
-            if(!boolShaded){
-                ndotl=1;
+            let currGradient = (x - sx) / (ex - sx);
+            let z        = this.linInterpolate(z1, z2, currGradient);
+            let ndotl    = this.linInterpolate(snl, enl, currGradient);
+
+            // FOR TEXTURING
+            let currU = this.linInterpolate(su, eu, currGradient);
+            let currV = this.linInterpolate(sv, ev, currGradient);
+
+            let textureColor;
+            if (texture != null ) {
+                textureColor = texture.map(currU, currV);
             }
-            this.drawPoint(new BABYLON.Vector3(x, data.currentY, z), new BABYLON.Color4(color.r * ndotl, color.g * ndotl, color.b * ndotl, 1));
+            else{
+                textureColor = new BABYLON.Color4(1, 1, 1, 1);
+            }        
+
+            if(!boolShaded){
+                ndotl = 1;
+            }
+            this.drawPoint(new BABYLON.Vector3(x, data.currentY, z), new BABYLON.Color4(color.r * ndotl * textureColor.r, color.g * ndotl * textureColor.g, color.b * ndotl * textureColor.b, 1));
         }
     }
 
-    drawTriangle (v1, v2, v3, color, lightPos, boolShaded) {
+    drawTriangle (v1, v2, v3, color, lightPos, boolShaded, texture) {
         // Sorting the points in order to always have this order on screen p1, p2 & p3
         // with p1 always up (thus having the Y the lowest possible to be near the top screen)
         // then p2 between p1 & p3
@@ -407,13 +438,35 @@ SoftEngine.Device = class {
                     data.ndotlb = ndotl3;
                     data.ndotlc = ndotl1;
                     data.ndotld = ndotl2;
-                    this.processScanLine(data, p1, p3, p1, p2, color, boolShaded);
+
+                    data.ua = v1.TextureCoordinates.x;
+                    data.ub = v3.TextureCoordinates.x;
+                    data.uc = v1.TextureCoordinates.x;
+                    data.ud = v2.TextureCoordinates.x;
+
+                    data.va = v1.TextureCoordinates.y;
+                    data.vb = v3.TextureCoordinates.y;
+                    data.vc = v1.TextureCoordinates.y;
+                    data.vd = v2.TextureCoordinates.y;
+
+                    this.processScanLine(data, p1, p3, p1, p2, color, boolShaded, texture);
                 } else {
                     data.ndotla = ndotl1;
                     data.ndotlb = ndotl3;
                     data.ndotlc = ndotl2;
                     data.ndotld = ndotl3;
-                    this.processScanLine(data, p1, p3, p2, p3, color, boolShaded);
+
+                    data.ua = v1.TextureCoordinates.x;
+                    data.ub = v3.TextureCoordinates.x;
+                    data.uc = v2.TextureCoordinates.x;
+                    data.ud = v3.TextureCoordinates.x;
+
+                    data.va = v1.TextureCoordinates.y;
+                    data.vb = v3.TextureCoordinates.y;
+                    data.vc = v2.TextureCoordinates.y;
+                    data.vd = v3.TextureCoordinates.y;
+
+                    this.processScanLine(data, p1, p3, p2, p3, color, boolShaded, texture);
                 }
             }
         }
@@ -436,13 +489,35 @@ SoftEngine.Device = class {
                     data.ndotlb = ndotl2;
                     data.ndotlc = ndotl1;
                     data.ndotld = ndotl3;
-                    this.processScanLine(data, p1, p2, p1, p3, color, boolShaded);
+
+                    data.ua = v1.TextureCoordinates.x;
+                    data.ub = v2.TextureCoordinates.x;
+                    data.uc = v1.TextureCoordinates.x;
+                    data.ud = v3.TextureCoordinates.x;
+
+                    data.va = v1.TextureCoordinates.y;
+                    data.vb = v2.TextureCoordinates.y;
+                    data.vc = v1.TextureCoordinates.y;
+                    data.vd = v3.TextureCoordinates.y;
+
+                    this.processScanLine(data, p1, p2, p1, p3, color, boolShaded, texture);
                 } else {
                     data.ndotla = ndotl2;
                     data.ndotlb = ndotl3;
                     data.ndotlc = ndotl1;
                     data.ndotld = ndotl3;
-                    this.processScanLine(data, p2, p3, p1, p3, color, boolShaded);
+
+                    data.ua = v2.TextureCoordinates.x;
+                    data.ub = v3.TextureCoordinates.x;
+                    data.uc = v1.TextureCoordinates.x;
+                    data.ud = v3.TextureCoordinates.x;
+
+                    data.va = v2.TextureCoordinates.y;
+                    data.vb = v3.TextureCoordinates.y;
+                    data.vc = v1.TextureCoordinates.y;
+                    data.vd = v3.TextureCoordinates.y;
+
+                    this.processScanLine(data, p2, p3, p1, p3, color, boolShaded, texture);
                 }
             }
         }
@@ -488,16 +563,17 @@ SoftEngine.Device = class {
                         cMesh.RasterColors[indexFaces] = 0.30*Math.random() + 0.70;
                     }
                     let color = cMesh.RasterColors[indexFaces];
-                    this.drawTriangle(pointA, pointB, pointC, new BABYLON.Color4(color, color, color, 1), lightPos, 0);
+                    this.drawTriangle(pointA, pointB, pointC, new BABYLON.Color4(color, color, color, 1), lightPos, 0, null);
                 }
                 // FOR GOURAD SHADING
                 else if (engine.shaded == 1){
                     let color = 1.0;
-                    this.drawTriangle(pointA, pointB, pointC, new BABYLON.Color4(color, color, color, 1), lightPos, 1);
+                    this.drawTriangle(pointA, pointB, pointC, new BABYLON.Color4(color, color, color, 1), lightPos, 1, null);
                 }
                 // FOR TEXTURING
                 else {
-                    console.log("TEXTURING");
+                    let color = 1.0;
+                    this.drawTriangle(pointA, pointB, pointC, new BABYLON.Color4(color, color, color, 1), lightPos, 1, cMesh.Texture);
                 }
             });
         });
