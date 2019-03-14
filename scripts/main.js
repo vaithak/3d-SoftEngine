@@ -49,7 +49,7 @@ function init() {
     lightPos = new BABYLON.Vector3(0, 5, -5);
 
     device = new SoftEngine.Device(canvas);
-    device.LoadJSONFile("monkey.babylon", loadJSONCompleted);
+    device.LoadJSONFile("../data/monkey.babylon", loadJSONCompleted);
 }
 
 function loadJSONCompleted(meshesLoaded) {

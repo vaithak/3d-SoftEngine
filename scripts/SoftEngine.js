@@ -32,7 +32,7 @@ class Texture{
         this.width = width;
         this.height = height;
         this.internalBuffer = null;
-        this.load(filename);
+        this.load("./data/" + filename);
     }
 
     load (filename) {
