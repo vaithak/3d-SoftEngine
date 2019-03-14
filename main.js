@@ -44,7 +44,7 @@ function init() {
     engine = new SoftEngine();
 
     camera = new SoftEngine.Camera();
-    camera.Position = new BABYLON.Vector3(0, 2, -10);
+    camera.Position = new BABYLON.Vector3(0, 2, -9);
     camera.Target = new BABYLON.Vector3(0, 0, 0);
     lightPos = new BABYLON.Vector3(0, 6, -5);
 
